@@ -1,0 +1,88 @@
+====================================
+TANSU - Variable Tracker for Word
+====================================
+
+QUICK START (Mac)
+-----------------
+1. Open Terminal
+2. cd to this folder:
+   cd "/path/to/Tansu MVP"
+
+3. Run the setup script:
+   chmod +x setup.sh
+   ./setup.sh
+
+4. Run the app:
+   ./run.sh
+
+   OR: Double-click run.sh in Finder (if you've set .sh files to open with Terminal)
+
+
+MANUAL INSTALL (Mac/Windows/Linux)
+----------------------------------
+1. Make sure Python 3.10+ is installed
+   - Mac: brew install python3
+   - Windows: Download from python.org
+
+2. Create a virtual environment:
+   python3 -m venv venv
+
+3. Activate it:
+   - Mac/Linux: source venv/bin/activate
+   - Windows: venv\Scripts\activate
+
+4. Install dependencies:
+   pip install -r requirements.txt
+
+5. Run the app:
+   python app.py
+
+
+FEATURES
+--------
+- Track variables (name, value, unit) for use in Word documents
+- Import variables from Excel spreadsheets
+- Save Excel ranges for one-click syncing
+- Insert variables into Word as DOCVARIABLE fields
+- Update all Word documents with current values
+- Sync values from Excel when they change
+- System tray/menu bar app for quick variable insertion (Windows & Mac)
+
+
+TRAY APP (Quick Insert)
+-----------------------
+For quick access to insert variables into Word without opening the main app:
+
+Windows:
+   python tray_app.py
+   (Adds a "VT" icon to your system tray - right-click to insert variables)
+
+Mac:
+   python tray_app.py
+   (Adds a "VT" icon to your menu bar - click to insert variables)
+
+The tray app shows all your variables and lets you insert them directly into
+Word at your cursor position. Variables are automatically synced with the
+main app's database.
+
+
+USAGE
+-----
+1. Add variables manually with "+ Add" or import from Excel with "From Excel"
+2. To save an Excel range for future syncing, click "Save Range" after selecting cells
+3. Click "Sync Excel" to pull latest values from saved Excel ranges
+4. Open a Word document and click "Scan" to find variables
+5. Click "Update Open" to update the active Word document
+6. Click "Update All" to batch-update all tracked .docx files
+
+
+TROUBLESHOOTING
+---------------
+- "No module named customtkinter": Run pip install -r requirements.txt
+- Word integration not working on Mac: Make sure Word is open when using Update Open/Scan
+- Excel import not working: Make sure the file is .xlsx or .xlsm format (not .xls)
+
+
+CONTACT
+-------
+Questions? Issues? Let me know!

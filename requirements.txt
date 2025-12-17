@@ -1,0 +1,20 @@
+# Core GUI
+customtkinter>=5.2.0
+
+# Excel file reading
+openpyxl>=3.1.0
+
+# Word document manipulation (for batch updates)
+python-docx>=1.1.0
+
+# Windows COM automation (Word integration)
+# Only needed on Windows - will fail gracefully on other platforms
+pywin32>=306; sys_platform == 'win32'
+
+# System tray icon (for Windows tray app)
+# Also works on Mac/Linux as an alternative to rumps
+pystray>=0.19.0; sys_platform == 'win32'
+Pillow>=10.0.0; sys_platform == 'win32'
+
+# Mac menu bar app (optional, Mac only)
+# rumps>=0.4.0; sys_platform == 'darwin'

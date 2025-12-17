@@ -1,0 +1,182 @@
+================================================================================
+TANSU WORD ADD-IN INSTALLATION GUIDE
+================================================================================
+
+This guide will help you add an "Insert Variable" button to Microsoft Word
+that connects to Tansu for quick variable insertion.
+
+PREREQUISITES:
+- Tansu app installed and working
+- Microsoft Word (Windows version)
+
+================================================================================
+STEP 1: ENABLE DEVELOPER TAB IN WORD
+================================================================================
+
+1. Open Microsoft Word
+2. Click File > Options
+3. Click "Customize Ribbon" on the left
+4. On the right side, check the box next to "Developer"
+5. Click OK
+
+You should now see a "Developer" tab in the Word ribbon.
+
+================================================================================
+STEP 2: CREATE THE MACRO
+================================================================================
+
+1. In Word, click Developer > Visual Basic (or press Alt+F11)
+2. The VBA Editor will open
+
+IMPORT THE MODULE:
+------------------
+3. In the VBA Editor, click File > Import File
+4. Navigate to the Tansu folder: word_addin/TansuModule.bas
+5. Click Open - this imports the main code
+
+CREATE THE USERFORM:
+--------------------
+6. In the VBA Editor, right-click on "Normal" in the Project panel (left side)
+7. Click Insert > UserForm
+8. A blank form appears. In the Properties panel (bottom left), change:
+   - (Name): VariablePickerForm
+   - Caption: Insert Tansu Variable
+
+9. Add these controls to the form (use the Toolbox, click View > Toolbox if hidden):
+
+   LABEL (for title):
+   - Drag a Label to the top
+   - Caption: Search:
+   - Left: 12, Top: 12
+
+   TEXTBOX (for search):
+   - Drag a TextBox next to the label
+   - (Name): txtSearch
+   - Left: 60, Top: 10, Width: 200, Height: 20
+
+   LISTBOX (for variables):
+   - Drag a ListBox below
+   - (Name): lstVariables
+   - Left: 12, Top: 40, Width: 280, Height: 180
+
+   CHECKBOX (for unit option):
+   - Drag a CheckBox below the list
+   - (Name): chkWithUnit
+   - Caption: Include unit
+   - Left: 12, Top: 230
+
+   LABEL (for status):
+   - Drag a Label
+   - (Name): lblStatus
+   - Caption: Ready
+   - Left: 12, Top: 255
+
+   BUTTON (Insert as Field):
+   - Drag a CommandButton
+   - (Name): btnInsertField
+   - Caption: Insert as Field
+   - Left: 12, Top: 280, Width: 90, Height: 28
+
+   BUTTON (Insert as Text):
+   - Drag a CommandButton
+   - (Name): btnInsertText
+   - Caption: Insert as Text
+   - Left: 110, Top: 280, Width: 90, Height: 28
+
+   BUTTON (Refresh):
+   - Drag a CommandButton
+   - (Name): btnRefresh
+   - Caption: Refresh
+   - Left: 208, Top: 280, Width: 60, Height: 28
+
+   BUTTON (Cancel):
+   - Drag a CommandButton
+   - (Name): btnCancel
+   - Caption: Cancel
+   - Left: 208, Top: 315, Width: 60, Height: 28
+
+10. Resize the form to fit: Width: 310, Height: 360
+
+ADD THE FORM CODE:
+------------------
+11. Double-click on the form background to open the code window
+12. Delete any existing code
+13. Copy ALL the code from word_addin/VariablePickerForm.frm
+    (starting from "Option Explicit") into the code window
+
+================================================================================
+STEP 3: ADD A RIBBON BUTTON (OPTIONAL BUT RECOMMENDED)
+================================================================================
+
+To add a button to Word's ribbon:
+
+1. Close the VBA Editor (File > Close and Return to Microsoft Word)
+2. In Word, click File > Options
+3. Click "Customize Ribbon" on the left
+4. Under "Choose commands from", select "Macros"
+5. You should see "Normal.TansuModule.InsertTansuVariable"
+6. On the right, select the tab where you want the button (e.g., "Insert")
+7. Click "New Group" to create a custom group
+8. Select your new group, click "Rename", name it "Tansu"
+9. Select the macro on the left, click "Add >>" to add it to your group
+10. Select the added macro, click "Rename" to give it a nice name and icon
+11. Click OK
+
+================================================================================
+STEP 4: ADD A KEYBOARD SHORTCUT (OPTIONAL)
+================================================================================
+
+1. In Word, click File > Options > Customize Ribbon
+2. Click "Keyboard shortcuts: Customize" at the bottom
+3. In Categories, scroll down and select "Macros"
+4. In Macros, select "Normal.TansuModule.InsertTansuVariable"
+5. Click in "Press new shortcut key" and press your desired shortcut
+   (e.g., Ctrl+Shift+V)
+6. Click "Assign"
+7. Click "Close"
+
+================================================================================
+STEP 5: SAVE AS TEMPLATE (MAKES IT PERMANENT)
+================================================================================
+
+To keep your macros available in all documents:
+
+1. The macros are saved in "Normal.dotm" by default
+2. When you close Word, click "Save" if prompted about Normal.dotm
+3. The macros will be available every time you open Word
+
+================================================================================
+USAGE
+================================================================================
+
+1. Start the Tansu tray app (python tray_app.py) - this starts the API server
+2. In Word, either:
+   - Click your ribbon button, OR
+   - Press your keyboard shortcut, OR
+   - Press Alt+F8, select InsertTansuVariable, click Run
+3. The variable picker dialog appears
+4. Search/select a variable
+5. Click "Insert as Field" (updatable) or "Insert as Text" (static)
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+"Tansu is not running" error:
+- Make sure you started the Tansu tray app (python tray_app.py)
+- Or run the API server directly: python api_server.py
+
+"No variables found":
+- Add some variables in the main Tansu app first
+- Click Refresh in the picker dialog
+
+Macros disabled warning:
+- Click File > Options > Trust Center > Trust Center Settings
+- Click "Macro Settings"
+- Select "Enable all macros" (or "Disable with notification" to be safer)
+
+Form controls not working:
+- Make sure control names match exactly (txtSearch, lstVariables, etc.)
+- Check that all code was copied correctly
+
+================================================================================
