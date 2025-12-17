@@ -3,7 +3,7 @@ Tansu version information.
 Update this when releasing new versions.
 """
 
-__version__ = "1.0.0"
+__version__ = "0.9.0"
 __app_name__ = "Tansu"
 
 # GitHub repository for update checks
