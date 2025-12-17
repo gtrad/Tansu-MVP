@@ -25,8 +25,8 @@ Tansu is a desktop application that helps you manage variables across Microsoft 
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/tansu.git
-   cd tansu
+   git clone https://github.com/gtrad/Tansu-MVP.git
+   cd Tansu-MVP
    ```
 
 2. Create a virtual environment:

@@ -7,4 +7,4 @@ __version__ = "0.9.0"
 __app_name__ = "Tansu"
 
 # GitHub repository for update checks
-GITHUB_REPO = "yourusername/tansu"  # Update this with your actual GitHub username
+GITHUB_REPO = "gtrad/Tansu-MVP"
