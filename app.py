@@ -900,6 +900,146 @@ class UpdateAvailableDialog(ctk.CTkToplevel):
         self.destroy()
 
 
+class FeedbackDialog(ctk.CTkToplevel):
+    """Dialog for submitting feedback/issues."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Send Feedback")
+        self.geometry("500x400")
+        self.resizable(False, False)
+
+        self.transient(parent)
+        self.grab_set()
+
+        self._create_widgets()
+
+        self.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f"+{x}+{y}")
+
+    def _create_widgets(self):
+        main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        main_frame.pack(fill="both", expand=True, padx=25, pady=20)
+
+        ctk.CTkLabel(
+            main_frame,
+            text="Send Feedback",
+            font=("", 18, "bold")
+        ).pack(pady=(0, 5))
+
+        ctk.CTkLabel(
+            main_frame,
+            text=f"Tansu v{__version__} (Beta)",
+            text_color="gray"
+        ).pack(pady=(0, 15))
+
+        # Feedback type
+        type_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        type_frame.pack(fill="x", pady=(0, 10))
+
+        ctk.CTkLabel(type_frame, text="Type:", width=60, anchor="w").pack(side="left")
+        self.feedback_type = ctk.CTkComboBox(
+            type_frame,
+            values=["Bug Report", "Feature Request", "General Feedback", "Question"],
+            width=200
+        )
+        self.feedback_type.pack(side="left")
+        self.feedback_type.set("General Feedback")
+
+        # Description
+        ctk.CTkLabel(main_frame, text="Description:", anchor="w").pack(fill="x", pady=(10, 5))
+        self.description_text = ctk.CTkTextbox(main_frame, height=150)
+        self.description_text.pack(fill="x", pady=(0, 10))
+
+        # Email (optional)
+        email_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        email_frame.pack(fill="x", pady=(0, 15))
+
+        ctk.CTkLabel(email_frame, text="Email (optional):", width=110, anchor="w").pack(side="left")
+        self.email_entry = ctk.CTkEntry(email_frame, width=250, placeholder_text="For follow-up")
+        self.email_entry.pack(side="left")
+
+        # Buttons
+        btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        btn_frame.pack(fill="x")
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Submit on GitHub",
+            width=140,
+            command=self._submit_github
+        ).pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Copy to Clipboard",
+            width=130,
+            fg_color="gray",
+            command=self._copy_to_clipboard
+        ).pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Cancel",
+            width=80,
+            fg_color="gray",
+            command=self.destroy
+        ).pack(side="left")
+
+    def _get_feedback_text(self) -> str:
+        """Format the feedback for submission."""
+        from version import GITHUB_REPO
+        feedback_type = self.feedback_type.get()
+        description = self.description_text.get("1.0", "end-1c").strip()
+        email = self.email_entry.get().strip()
+
+        text = f"**Type:** {feedback_type}\n\n"
+        text += f"**Description:**\n{description}\n\n"
+        text += f"**App Version:** {__version__}\n"
+        text += f"**OS:** {platform.system()} {platform.release()}\n"
+        if email:
+            text += f"**Contact:** {email}\n"
+
+        return text
+
+    def _submit_github(self):
+        """Open GitHub issues page with pre-filled content."""
+        from version import GITHUB_REPO
+        import urllib.parse
+
+        feedback_type = self.feedback_type.get()
+        description = self.description_text.get("1.0", "end-1c").strip()
+
+        if not description:
+            messagebox.showwarning("Missing Description", "Please enter a description.")
+            return
+
+        # Create GitHub issue URL with pre-filled body
+        title = urllib.parse.quote(f"[{feedback_type}] ")
+        body = urllib.parse.quote(self._get_feedback_text())
+
+        url = f"https://github.com/{GITHUB_REPO}/issues/new?title={title}&body={body}"
+        webbrowser.open(url)
+        self.destroy()
+
+    def _copy_to_clipboard(self):
+        """Copy feedback to clipboard."""
+        description = self.description_text.get("1.0", "end-1c").strip()
+
+        if not description:
+            messagebox.showwarning("Missing Description", "Please enter a description.")
+            return
+
+        text = self._get_feedback_text()
+        self.clipboard_clear()
+        self.clipboard_append(text)
+
+        messagebox.showinfo("Copied", "Feedback copied to clipboard!")
+        self.destroy()
+
+
 # -------------------------
 # Main Application Window
 # -------------------------
@@ -1024,10 +1164,47 @@ class VariableTrackerApp(ctk.CTk):
         self.var_scroll.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
         self.var_scroll.grid_columnconfigure(0, weight=1)
 
+        # Status bar with BETA badge and feedback button
+        status_frame = ctk.CTkFrame(self, fg_color="transparent")
+        status_frame.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 10))
+        status_frame.grid_columnconfigure(0, weight=1)
+
         self.status_var = ctk.StringVar(value="Ready")
-        status_bar = ctk.CTkLabel(self, textvariable=self.status_var,
+        status_bar = ctk.CTkLabel(status_frame, textvariable=self.status_var,
                                    anchor="w", text_color="gray")
-        status_bar.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 10))
+        status_bar.grid(row=0, column=0, sticky="w")
+
+        # Beta badge and feedback button (right side)
+        beta_frame = ctk.CTkFrame(status_frame, fg_color="transparent")
+        beta_frame.grid(row=0, column=1, sticky="e")
+
+        beta_label = ctk.CTkLabel(
+            beta_frame,
+            text="BETA",
+            font=("", 11, "bold"),
+            text_color="#FFD700",  # Gold color
+            fg_color="#3a3a3a",
+            corner_radius=4,
+            padx=6,
+            pady=2
+        )
+        beta_label.pack(side="left", padx=(0, 8))
+
+        feedback_btn = ctk.CTkButton(
+            beta_frame,
+            text="Feedback",
+            width=70,
+            height=24,
+            font=("", 11),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=self._show_feedback_dialog
+        )
+        feedback_btn.pack(side="left")
+
+    def _show_feedback_dialog(self):
+        """Show the feedback dialog."""
+        FeedbackDialog(self)
 
     def _refresh_variable_list(self):
         """Refresh the list of variables displayed."""
