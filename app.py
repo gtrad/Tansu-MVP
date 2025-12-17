@@ -6,6 +6,7 @@ Uses CustomTkinter for modern look and feel.
 import customtkinter as ctk
 from tkinter import messagebox, Menu
 import logging
+import os
 import platform
 import subprocess
 import uuid
@@ -14,7 +15,11 @@ from typing import Optional
 
 from database import VariableDatabase
 from docx_updater import update_docx_variables, get_docx_variables
-from excel_reader import validate_excel_link, sync_variables_from_excel, validate_excel_range, read_range_as_variables, read_sheet_preview, get_sheet_names
+from excel_reader import (
+    validate_excel_link, sync_variables_from_excel, validate_excel_range,
+    read_range_as_variables, read_sheet_preview, get_sheet_names,
+    get_or_create_excel_guid
+)
 from version import __version__, __app_name__
 from settings import is_first_run, mark_first_run_complete, get_setting, set_setting
 from update_checker import check_for_update_async
@@ -906,7 +911,7 @@ class FeedbackDialog(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Send Feedback")
-        self.geometry("500x400")
+        self.geometry("500x450")
         self.resizable(False, False)
 
         self.transient(parent)
@@ -1041,6 +1046,320 @@ class FeedbackDialog(ctk.CTkToplevel):
 
 
 # -------------------------
+# Quick Insert Popup (Global Hotkey)
+# -------------------------
+
+def run_applescript(script: str) -> str:
+    """Run an AppleScript and return the output (Mac only)."""
+    result = subprocess.run(
+        ['osascript', '-e', script],
+        capture_output=True,
+        text=True
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"AppleScript error: {result.stderr}")
+    return result.stdout.strip()
+
+
+def check_word_document_open() -> bool:
+    """Check if Word has a document open."""
+    if platform.system() == "Darwin":
+        # Mac: Use AppleScript
+        script = '''
+tell application "System Events"
+    set isRunning to (exists process "Microsoft Word")
+end tell
+if isRunning then
+    tell application "Microsoft Word"
+        if (count of documents) > 0 then
+            return "true"
+        end if
+    end tell
+end if
+return "false"
+'''
+        try:
+            result = run_applescript(script)
+            return result == "true"
+        except:
+            return False
+    elif platform.system() == "Windows":
+        # Windows: Use COM
+        try:
+            import win32com.client
+            word = win32com.client.GetObject(Class="Word.Application")
+            return word.Documents.Count > 0
+        except:
+            return False
+    return False
+
+
+def insert_variable_into_word(var_name: str, var_value: str, as_field: bool = True) -> bool:
+    """Insert a variable into Word at the current cursor position."""
+    if platform.system() == "Darwin":
+        return _insert_variable_mac(var_name, var_value, as_field)
+    elif platform.system() == "Windows":
+        return _insert_variable_windows(var_name, var_value, as_field)
+    return False
+
+
+def _insert_variable_mac(var_name: str, var_value: str, as_field: bool) -> bool:
+    """Insert variable on Mac using AppleScript."""
+    try:
+        name_escaped = var_name.replace('"', '\\"')
+        value_escaped = var_value.replace('"', '\\"')
+
+        if as_field:
+            script = f'''
+tell application "Microsoft Word"
+    activate
+    set doc to active document
+    try
+        delete variable "{name_escaped}" of doc
+    end try
+    make new variable at doc with properties {{name:"{name_escaped}"}}
+    set variable value of variable "{name_escaped}" of doc to "{value_escaped}"
+    set theSelection to selection
+    make new field at text object of theSelection with properties {{field type:field doc variable, field text:"{name_escaped}"}}
+end tell
+tell application "System Events"
+    delay 0.2
+    key code 101
+end tell
+return "success"
+'''
+        else:
+            script = f'''
+tell application "Microsoft Word"
+    type text selection text "{value_escaped}"
+    return "success"
+end tell
+'''
+        run_applescript(script)
+        return True
+    except Exception as e:
+        logging.error(f"Error inserting variable: {e}")
+        return False
+
+
+def _insert_variable_windows(var_name: str, var_value: str, as_field: bool) -> bool:
+    """Insert variable on Windows using COM."""
+    try:
+        import win32com.client
+        word = win32com.client.GetObject(Class="Word.Application")
+        doc = word.ActiveDocument
+
+        if as_field:
+            # Set document variable
+            try:
+                doc.Variables(var_name).Delete()
+            except:
+                pass
+            doc.Variables.Add(var_name, var_value)
+
+            # Insert DOCVARIABLE field at cursor
+            selection = word.Selection
+            selection.Fields.Add(
+                Range=selection.Range,
+                Type=-1,  # wdFieldEmpty
+                Text=f'DOCVARIABLE "{var_name}"',
+                PreserveFormatting=True
+            )
+
+            # Update the field
+            selection.Fields.Update()
+        else:
+            # Insert as plain text
+            word.Selection.TypeText(var_value)
+
+        return True
+    except Exception as e:
+        logging.error(f"Error inserting variable: {e}")
+        return False
+
+
+class QuickInsertPopup(ctk.CTkToplevel):
+    """Popup for quickly inserting variables via hotkey."""
+
+    def __init__(self, parent, variables: list):
+        super().__init__(parent)
+        self.title("Insert Variable")
+        self.geometry("350x400")
+        self.resizable(False, False)
+
+        # Make it float on top (but don't bring parent to front)
+        self.attributes("-topmost", True)
+
+        self.variables = variables
+        self.filtered_vars = variables.copy()
+        self.selected_index = 0
+        self.result = None
+
+        self._create_widgets()
+
+        # Center on screen
+        self.update_idletasks()
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = (screen_width - self.winfo_width()) // 2
+        y = (screen_height - self.winfo_height()) // 3
+        self.geometry(f"+{x}+{y}")
+
+        # Force focus to this window and search entry
+        self.lift()
+        self.focus_force()
+        self.search_entry.focus_set()
+
+        # Bind keys
+        self.bind("<Escape>", lambda e: self.destroy())
+        self.bind("<Return>", self._on_enter)
+        self.bind("<Up>", self._on_up)
+        self.bind("<Down>", self._on_down)
+
+    def _create_widgets(self):
+        main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        main_frame.pack(fill="both", expand=True, padx=15, pady=15)
+
+        # Title
+        hotkey_name = "Option+Space" if platform.system() == "Darwin" else "Alt+Space"
+        ctk.CTkLabel(
+            main_frame,
+            text=f"Insert Variable ({hotkey_name})",
+            font=("", 14, "bold")
+        ).pack(pady=(0, 10))
+
+        # Search entry
+        self.search_entry = ctk.CTkEntry(
+            main_frame,
+            placeholder_text="Search variables...",
+            width=300
+        )
+        self.search_entry.pack(fill="x", pady=(0, 10))
+        self.search_entry.bind("<KeyRelease>", self._on_search)
+
+        # Variables list
+        self.list_frame = ctk.CTkScrollableFrame(main_frame, height=250)
+        self.list_frame.pack(fill="both", expand=True, pady=(0, 10))
+
+        self._update_list()
+
+        # Insert options
+        options_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        options_frame.pack(fill="x")
+
+        ctk.CTkButton(
+            options_frame,
+            text="Insert as Field",
+            width=150,
+            command=lambda: self._insert(as_field=True)
+        ).pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(
+            options_frame,
+            text="Insert as Text",
+            width=120,
+            fg_color="gray",
+            command=lambda: self._insert(as_field=False)
+        ).pack(side="left")
+
+    def _update_list(self):
+        # Clear existing
+        for widget in self.list_frame.winfo_children():
+            widget.destroy()
+
+        if not self.filtered_vars:
+            ctk.CTkLabel(
+                self.list_frame,
+                text="No variables found",
+                text_color="gray"
+            ).pack(pady=20)
+            return
+
+        for i, var in enumerate(self.filtered_vars):
+            is_selected = (i == self.selected_index)
+            bg_color = "#1f538d" if is_selected else "transparent"
+
+            row = ctk.CTkFrame(self.list_frame, fg_color=bg_color, corner_radius=5)
+            row.pack(fill="x", pady=2)
+
+            display = f"{var['name']}: {var['value']}"
+            if var.get('unit'):
+                display += f" {var['unit']}"
+
+            label = ctk.CTkLabel(row, text=display, anchor="w")
+            label.pack(fill="x", padx=10, pady=5)
+
+            # Single click to select, double click to insert
+            row.bind("<Button-1>", lambda e, idx=i: self._select_item(idx))
+            label.bind("<Button-1>", lambda e, idx=i: self._select_item(idx))
+            row.bind("<Double-Button-1>", lambda e, idx=i: self._select_and_insert(idx))
+            label.bind("<Double-Button-1>", lambda e, idx=i: self._select_and_insert(idx))
+
+    def _on_search(self, event):
+        query = self.search_entry.get().lower()
+        if query:
+            self.filtered_vars = [
+                v for v in self.variables
+                if query in v['name'].lower() or query in str(v['value']).lower()
+            ]
+        else:
+            self.filtered_vars = self.variables.copy()
+
+        self.selected_index = 0
+        self._update_list()
+
+    def _on_up(self, event):
+        if self.filtered_vars and self.selected_index > 0:
+            self.selected_index -= 1
+            self._update_list()
+
+    def _on_down(self, event):
+        if self.filtered_vars and self.selected_index < len(self.filtered_vars) - 1:
+            self.selected_index += 1
+            self._update_list()
+
+    def _on_enter(self, event):
+        self._insert(as_field=True)
+
+    def _select_item(self, idx):
+        """Select an item without inserting."""
+        self.selected_index = idx
+        self._update_list()
+
+    def _select_and_insert(self, idx):
+        self.selected_index = idx
+        self._insert(as_field=True)
+
+    def _insert(self, as_field: bool):
+        if not self.filtered_vars:
+            self.withdraw()
+            self.destroy()
+            return
+
+        var = self.filtered_vars[self.selected_index]
+
+        if not check_word_document_open():
+            messagebox.showwarning(
+                "No Word Document",
+                "Please open a Word document first."
+            )
+            self.withdraw()
+            self.destroy()
+            return
+
+        # Hide the popup immediately
+        self.withdraw()
+
+        # Insert the variable
+        success = insert_variable_into_word(var['name'], var['value'], as_field=as_field)
+        if not success:
+            messagebox.showerror("Error", f"Failed to insert '{var['name']}'")
+
+        # Now destroy
+        self.destroy()
+
+
+# -------------------------
 # Main Application Window
 # -------------------------
 
@@ -1051,7 +1370,7 @@ class VariableTrackerApp(ctk.CTk):
         super().__init__()
 
         self.title(f"{__app_name__} v{__version__}")
-        self.geometry("800x600")
+        self.geometry("725x600")
         self.minsize(600, 400)
 
         # Set window icon
@@ -1078,6 +1397,10 @@ class VariableTrackerApp(ctk.CTk):
         elif get_setting("check_for_updates"):
             # Check for updates in background
             self.after(500, self._check_for_updates)
+
+        # Start global hotkey listener (Option+Space)
+        self._start_hotkey_listener()
+        self._quick_insert_popup = None
 
     def _set_icon(self):
         """Set the application window icon."""
@@ -1161,10 +1484,6 @@ class VariableTrackerApp(ctk.CTk):
         ctk.CTkButton(toolbar, text="Scan", width=70,
                       command=self._scan_document, state=word_state).pack(side="left", padx=(0, 5))
 
-        self.topmost_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(toolbar, text="Always on top", variable=self.topmost_var,
-                        command=self._toggle_topmost).pack(side="right")
-
         content = ctk.CTkFrame(self)
         content.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
         content.grid_columnconfigure(0, weight=1)
@@ -1208,7 +1527,7 @@ class VariableTrackerApp(ctk.CTk):
             beta_frame,
             text="BETA",
             font=("", 11, "bold"),
-            text_color="#FFD700",  # Gold color
+            text_color="#c026d3",
             fg_color="#3a3a3a",
             corner_radius=4,
             padx=6,
@@ -1299,6 +1618,23 @@ class VariableTrackerApp(ctk.CTk):
             except Exception as e:
                 messagebox.showerror("Error", f"Could not add variable: {e}")
 
+    def _register_excel_file_with_guid(self, file_path: str) -> Optional[int]:
+        """Register an Excel file with GUID tracking. Returns the excel_file_id."""
+        try:
+            # Get or create GUID in the Excel file
+            guid = get_or_create_excel_guid(file_path)
+            if not guid:
+                logging.warning(f"Could not create GUID for {file_path}")
+                return None
+
+            # Register in database
+            name = os.path.basename(file_path)
+            excel_file_id = self.db.register_excel_file(guid, name, file_path)
+            return excel_file_id
+        except Exception as e:
+            logging.warning(f"Could not register Excel file: {e}")
+            return None
+
     def _import_from_excel(self):
         """Import variables from an Excel range."""
         dialog = ImportRangeDialog(self)
@@ -1308,6 +1644,9 @@ class VariableTrackerApp(ctk.CTk):
         if dialog.save_result:
             save_data = dialog.save_result
             try:
+                # Register the Excel file with GUID tracking
+                excel_file_id = self._register_excel_file_with_guid(save_data['file_path'])
+
                 # Save the range configuration
                 self.db.add_excel_range(
                     name=save_data['name'],
@@ -1317,7 +1656,12 @@ class VariableTrackerApp(ctk.CTk):
                 )
 
                 # Also import the variables
-                added, updated, errors = self._do_import_variables(save_data['variables'])
+                added, updated, errors = self._do_import_variables(
+                    save_data['variables'],
+                    excel_file_id=excel_file_id,
+                    excel_file_path=save_data['file_path'],
+                    excel_sheet=save_data['sheet_name']
+                )
 
                 self._refresh_variable_list()
 
@@ -1357,8 +1701,12 @@ class VariableTrackerApp(ctk.CTk):
             else:
                 messagebox.showinfo("Import Complete", "\n".join(msg))
 
-    def _do_import_variables(self, variables: list[dict]) -> tuple[int, int, list]:
-        """Import a list of variables. Returns (added, updated, errors)."""
+    def _do_import_variables(self, variables: list[dict], excel_file_id: int = None,
+                              excel_file_path: str = None, excel_sheet: str = None) -> tuple[int, int, list]:
+        """Import a list of variables. Returns (added, updated, errors).
+
+        If excel_file_id is provided, links variables to that Excel file for GUID tracking.
+        """
         added = 0
         updated = 0
         errors = []
@@ -1372,15 +1720,21 @@ class VariableTrackerApp(ctk.CTk):
                     self.db.update_variable(existing['id'],
                                             value=var_data['value'],
                                             unit=var_data.get('unit', ''))
+                    # Link to Excel file if provided
+                    if excel_file_id:
+                        self.db.link_variable_to_excel_file(existing['id'], excel_file_id)
                     updated += 1
                 else:
                     # Add new variable
-                    self.db.add_variable(
+                    var_id = self.db.add_variable(
                         name=var_data['name'],
                         value=var_data['value'],
                         unit=var_data.get('unit', ''),
                         description=''
                     )
+                    # Link to Excel file if provided
+                    if excel_file_id:
+                        self.db.link_variable_to_excel_file(var_id, excel_file_id)
                     added += 1
             except Exception as e:
                 errors.append(f"{var_data['name']}: {e}")
@@ -1443,6 +1797,62 @@ class VariableTrackerApp(ctk.CTk):
             except Exception as e:
                 messagebox.showerror("Error", f"Could not update link: {e}")
 
+    def _resolve_excel_file(self, stored_path: str, excel_file_id: int = None) -> Optional[str]:
+        """
+        Resolve an Excel file path, prompting user to locate if missing.
+        Returns the valid path or None if user cancels.
+        """
+        from tkinter import filedialog
+        from excel_reader import get_excel_guid, get_or_create_excel_guid
+
+        # Check if file exists at stored path
+        if os.path.exists(stored_path):
+            return stored_path
+
+        # File not found - prompt user to locate it
+        filename = os.path.basename(stored_path)
+        result = messagebox.askyesno(
+            "Excel File Not Found",
+            f"Cannot find Excel file:\n{filename}\n\nWould you like to locate it?"
+        )
+
+        if not result:
+            return None
+
+        # Get expected GUID if we have a file_id
+        expected_guid = None
+        if excel_file_id:
+            excel_file = self.db.get_excel_file_by_id(excel_file_id)
+            if excel_file:
+                expected_guid = excel_file.get('guid')
+
+        # Show file picker
+        new_path = filedialog.askopenfilename(
+            title=f"Locate {filename}",
+            filetypes=[("Excel files", "*.xlsx *.xlsm"), ("All files", "*.*")],
+            initialfile=filename
+        )
+
+        if not new_path:
+            return None
+
+        # Verify GUID if we have one
+        if expected_guid:
+            actual_guid = get_excel_guid(new_path)
+            if actual_guid and actual_guid != expected_guid:
+                # GUIDs don't match - this is a different file
+                if not messagebox.askyesno(
+                    "Different File",
+                    f"The selected file appears to be different from the original.\n\n"
+                    f"Use this file anyway?"
+                ):
+                    return None
+
+            # Update the stored path
+            self.db.update_excel_file_path(expected_guid, new_path, os.path.basename(new_path))
+
+        return new_path
+
     def _sync_excel(self):
         """Sync all variables with Excel links and saved ranges."""
         linked_vars = self.db.get_variables_with_excel_links()
@@ -1454,20 +1864,63 @@ class VariableTrackerApp(ctk.CTk):
 
         all_changes = {}
         range_changes = []
+        skipped_files = set()  # Track files user chose to skip
 
         # Get changes from individual cell links
         if linked_vars:
-            changes = sync_variables_from_excel(linked_vars)
-            for var_id, (old_val, new_val) in changes.items():
-                var = next((v for v in linked_vars if v['id'] == var_id), None)
-                if var:
-                    all_changes[var_id] = (var['name'], old_val, new_val)
+            # Group variables by Excel file to avoid multiple prompts for same file
+            file_paths = {}
+            for var in linked_vars:
+                path = var.get('excel_file')
+                if path:
+                    if path not in file_paths:
+                        file_paths[path] = []
+                    file_paths[path].append(var)
+
+            # Resolve each file path
+            resolved_paths = {}
+            for path in file_paths:
+                if path in skipped_files:
+                    continue
+                resolved = self._resolve_excel_file(path, file_paths[path][0].get('excel_file_id'))
+                if resolved:
+                    resolved_paths[path] = resolved
+                else:
+                    skipped_files.add(path)
+
+            # Update variables with resolved paths for syncing
+            vars_to_sync = []
+            for var in linked_vars:
+                path = var.get('excel_file')
+                if path in resolved_paths:
+                    var_copy = dict(var)
+                    var_copy['excel_file'] = resolved_paths[path]
+                    vars_to_sync.append(var_copy)
+
+            if vars_to_sync:
+                changes = sync_variables_from_excel(vars_to_sync)
+                for var_id, (old_val, new_val) in changes.items():
+                    var = next((v for v in linked_vars if v['id'] == var_id), None)
+                    if var:
+                        all_changes[var_id] = (var['name'], old_val, new_val)
 
         # Get changes from saved ranges
         for saved_range in saved_ranges:
+            file_path = saved_range['file_path']
+
+            # Skip if user already chose to skip this file
+            if file_path in skipped_files:
+                continue
+
+            # Resolve file path
+            resolved_path = self._resolve_excel_file(file_path, saved_range.get('excel_file_id'))
+            if not resolved_path:
+                skipped_files.add(file_path)
+                continue
+
             try:
                 is_valid, message, variables = validate_excel_range(
-                    saved_range['file_path'],
+                    resolved_path,
                     saved_range['sheet_name'],
                     saved_range['start_cell']
                 )
@@ -1801,58 +2254,57 @@ class VariableTrackerApp(ctk.CTk):
             self.status_var.set(f"Updated {updated_count} file(s)")
             messagebox.showinfo("Update Complete", f"Successfully updated {updated_count} file(s).\n\nBackup files (.bak) were created.")
 
-    def _toggle_topmost(self):
-        self.attributes("-topmost", self.topmost_var.get())
+    def _start_hotkey_listener(self):
+        """Start the global hotkey listener for Alt+Space (Option+Space on Mac)."""
+        try:
+            from pynput import keyboard
+
+            def on_hotkey():
+                # Schedule on main thread
+                self.after(0, self._show_quick_insert)
+
+            # Alt+Space hotkey (Option+Space on Mac)
+            hotkey = keyboard.HotKey(
+                keyboard.HotKey.parse('<alt>+<space>'),
+                on_hotkey
+            )
+
+            def on_press(key):
+                hotkey.press(self._listener.canonical(key))
+
+            def on_release(key):
+                hotkey.release(self._listener.canonical(key))
+
+            self._listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+            self._listener.start()
+
+            hotkey_name = "Option+Space" if platform.system() == "Darwin" else "Alt+Space"
+            logging.info(f"Global hotkey ({hotkey_name}) registered")
+
+        except Exception as e:
+            logging.warning(f"Could not start hotkey listener: {e}")
+
+    def _show_quick_insert(self):
+        """Show the quick insert popup."""
+        # Don't open multiple popups
+        if self._quick_insert_popup and self._quick_insert_popup.winfo_exists():
+            self._quick_insert_popup.focus_set()
+            return
+
+        variables = self.db.get_all_variables()
+        if not variables:
+            messagebox.showinfo("No Variables", "Add some variables first.")
+            return
+
+        self._quick_insert_popup = QuickInsertPopup(self, variables)
 
 
 # -------------------------
 # Main Entry Point
 # -------------------------
 
-def main_gui_only():
-    """Run just the GUI without spawning menubar (for bundled app)."""
-    app = VariableTrackerApp()
-    app.mainloop()
-
-
 def main():
-    import os
-    import sys
-
-    # On Mac, start the menu bar app in a separate process
-    if platform.system() == "Darwin":
-        # Check if menubar_app is already running
-        check = subprocess.run(['pgrep', '-f', 'menubar_app'], capture_output=True)
-        if check.returncode != 0:  # Not running
-            # Handle both development and bundled app modes
-            if getattr(sys, 'frozen', False):
-                # Running as bundled app - look in Resources folder
-                app_dir = os.path.join(sys._MEIPASS)
-            else:
-                # Running as script
-                app_dir = os.path.dirname(os.path.abspath(__file__))
-
-            menubar_script = os.path.join(app_dir, 'menubar_app.py')
-            if os.path.exists(menubar_script):
-                # Use system Python for menubar since bundled app doesn't have separate interpreter
-                python_exe = sys.executable if not getattr(sys, 'frozen', False) else '/usr/bin/python3'
-                # Try to find a working Python
-                for py in [sys.executable, '/usr/bin/python3', '/usr/local/bin/python3', '/opt/homebrew/bin/python3']:
-                    if os.path.exists(py) and not getattr(sys, 'frozen', False):
-                        python_exe = py
-                        break
-                    elif getattr(sys, 'frozen', False) and os.path.exists(py) and py != sys.executable:
-                        python_exe = py
-                        break
-
-                subprocess.Popen(
-                    [python_exe, menubar_script],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    cwd=app_dir
-                )
-
-    # Create and run the main app
+    """Run the main application."""
     app = VariableTrackerApp()
     app.mainloop()
 

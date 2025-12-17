@@ -3,8 +3,103 @@ Excel file reader for syncing variable values from Excel cells.
 """
 
 import os
+import uuid
 from typing import Optional
 from openpyxl import load_workbook
+
+
+# GUID property name for tracking Excel files
+TANSU_GUID_PROPERTY = "TansuGUID"
+
+
+def get_excel_guid(file_path: str) -> Optional[str]:
+    """
+    Read TansuGUID from Excel custom document properties.
+
+    Args:
+        file_path: Path to the .xlsx file
+
+    Returns:
+        GUID string if found, None otherwise
+    """
+    if not os.path.exists(file_path):
+        return None
+
+    try:
+        wb = load_workbook(file_path, read_only=False)
+
+        # Check custom document properties
+        if wb.custom_doc_props and TANSU_GUID_PROPERTY in wb.custom_doc_props:
+            guid = wb.custom_doc_props[TANSU_GUID_PROPERTY].value
+            wb.close()
+            return str(guid) if guid else None
+
+        wb.close()
+        return None
+    except Exception:
+        return None
+
+
+def set_excel_guid(file_path: str, guid: str = None) -> Optional[str]:
+    """
+    Write TansuGUID to Excel custom document properties.
+    If guid is None, generates a new UUID.
+
+    Args:
+        file_path: Path to the .xlsx file
+        guid: Optional GUID to set, generates new one if None
+
+    Returns:
+        The GUID that was set, or None if failed
+    """
+    if not os.path.exists(file_path):
+        return None
+
+    if guid is None:
+        guid = str(uuid.uuid4())
+
+    try:
+        from openpyxl.packaging.custom import CustomPropertyList, StringProperty
+
+        wb = load_workbook(file_path, read_only=False)
+
+        # Create or get custom properties
+        if wb.custom_doc_props is None:
+            wb.custom_doc_props = CustomPropertyList()
+
+        # Remove existing property if present
+        existing = [p for p in wb.custom_doc_props if p.name == TANSU_GUID_PROPERTY]
+        for p in existing:
+            wb.custom_doc_props.remove(p)
+
+        # Add new property
+        wb.custom_doc_props.append(StringProperty(name=TANSU_GUID_PROPERTY, value=guid))
+
+        wb.save(file_path)
+        wb.close()
+        return guid
+    except Exception as e:
+        # File might be read-only or open in another app
+        return None
+
+
+def get_or_create_excel_guid(file_path: str) -> Optional[str]:
+    """
+    Get existing GUID from Excel file, or create and store a new one.
+
+    Args:
+        file_path: Path to the .xlsx file
+
+    Returns:
+        The GUID (existing or newly created), or None if failed
+    """
+    # Try to read existing GUID
+    guid = get_excel_guid(file_path)
+    if guid:
+        return guid
+
+    # Create new GUID
+    return set_excel_guid(file_path)
 
 
 def read_cell_value(file_path: str, sheet_name: str, cell_ref: str) -> Optional[str]:

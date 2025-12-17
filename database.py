@@ -100,6 +100,24 @@ class VariableDatabase:
             except sqlite3.OperationalError:
                 pass  # Column already exists
 
+        # Excel files table - tracks Excel files by GUID
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS excel_files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guid TEXT UNIQUE NOT NULL,
+                name TEXT,
+                path TEXT,
+                first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_synced TIMESTAMP
+            )
+        """)
+
+        # Add excel_file_id column to variables if it doesn't exist
+        try:
+            cursor.execute("ALTER TABLE variables ADD COLUMN excel_file_id INTEGER REFERENCES excel_files(id)")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         # Excel ranges table - saved ranges for batch syncing
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS excel_ranges (
@@ -108,10 +126,17 @@ class VariableDatabase:
                 file_path TEXT NOT NULL,
                 sheet_name TEXT NOT NULL,
                 start_cell TEXT NOT NULL,
+                excel_file_id INTEGER REFERENCES excel_files(id),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_synced TIMESTAMP
             )
         """)
+
+        # Add excel_file_id column to excel_ranges if it doesn't exist
+        try:
+            cursor.execute("ALTER TABLE excel_ranges ADD COLUMN excel_file_id INTEGER REFERENCES excel_files(id)")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         conn.commit()
         conn.close()
@@ -375,6 +400,118 @@ class VariableDatabase:
     def generate_guid() -> str:
         """Generate a new GUID for a document."""
         return str(uuid.uuid4())
+
+    # -------------------------
+    # Excel File operations
+    # -------------------------
+
+    def register_excel_file(self, guid: str, name: str, path: str) -> int:
+        """Register a new Excel file or return existing ID."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+
+        # Check if already exists
+        cursor.execute("SELECT id FROM excel_files WHERE guid = ?", (guid,))
+        row = cursor.fetchone()
+
+        if row:
+            # Update name/path in case they changed
+            cursor.execute(
+                "UPDATE excel_files SET name = ?, path = ?, last_synced = CURRENT_TIMESTAMP WHERE guid = ?",
+                (name, path, guid)
+            )
+            conn.commit()
+            file_id = row['id']
+        else:
+            cursor.execute(
+                "INSERT INTO excel_files (guid, name, path) VALUES (?, ?, ?)",
+                (guid, name, path)
+            )
+            conn.commit()
+            file_id = cursor.lastrowid
+
+        conn.close()
+        return file_id
+
+    def get_excel_file_by_guid(self, guid: str) -> Optional[dict]:
+        """Get an Excel file by its GUID."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM excel_files WHERE guid = ?", (guid,))
+        row = cursor.fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def get_excel_file_by_id(self, file_id: int) -> Optional[dict]:
+        """Get an Excel file by its ID."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM excel_files WHERE id = ?", (file_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def get_all_excel_files(self) -> list[dict]:
+        """Get all tracked Excel files."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM excel_files ORDER BY name")
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+
+    def update_excel_file_path(self, guid: str, new_path: str, new_name: str = None):
+        """Update the path (and optionally name) for an Excel file."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        if new_name:
+            cursor.execute(
+                "UPDATE excel_files SET path = ?, name = ? WHERE guid = ?",
+                (new_path, new_name, guid)
+            )
+        else:
+            cursor.execute(
+                "UPDATE excel_files SET path = ? WHERE guid = ?",
+                (new_path, guid)
+            )
+        conn.commit()
+        conn.close()
+
+    def delete_excel_file(self, file_id: int):
+        """Delete an Excel file record."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        # Clear references in variables
+        cursor.execute("UPDATE variables SET excel_file_id = NULL WHERE excel_file_id = ?", (file_id,))
+        # Clear references in excel_ranges
+        cursor.execute("UPDATE excel_ranges SET excel_file_id = NULL WHERE excel_file_id = ?", (file_id,))
+        # Delete the file record
+        cursor.execute("DELETE FROM excel_files WHERE id = ?", (file_id,))
+        conn.commit()
+        conn.close()
+
+    def link_variable_to_excel_file(self, var_id: int, excel_file_id: int):
+        """Link a variable to an Excel file by ID."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE variables SET excel_file_id = ? WHERE id = ?",
+            (excel_file_id, var_id)
+        )
+        conn.commit()
+        conn.close()
+
+    def get_variables_by_excel_file(self, excel_file_id: int) -> list[dict]:
+        """Get all variables linked to a specific Excel file."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM variables WHERE excel_file_id = ? ORDER BY name",
+            (excel_file_id,)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
 
     # -------------------------
     # Excel Range operations
