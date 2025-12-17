@@ -17,6 +17,9 @@ datas = [
     ('excel_reader.py', '.'),
     ('docx_updater.py', '.'),
     ('api_server.py', '.'),
+    ('version.py', '.'),
+    ('settings.py', '.'),
+    ('update_checker.py', '.'),
 ]
 
 binaries = []
