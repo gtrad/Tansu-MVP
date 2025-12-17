@@ -1,0 +1,10 @@
+"""
+Tansu version information.
+Update this when releasing new versions.
+"""
+
+__version__ = "1.0.0"
+__app_name__ = "Tansu"
+
+# GitHub repository for update checks
+GITHUB_REPO = "yourusername/tansu"  # Update this with your actual GitHub username

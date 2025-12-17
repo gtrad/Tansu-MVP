@@ -22,8 +22,9 @@ dist/
 # PyInstaller
 *.spec.bak
 
-# Database (user data - don't commit)
+# Database and settings (user data - don't commit)
 variables.db
+tansu_settings.json
 
 # IDE
 .idea/

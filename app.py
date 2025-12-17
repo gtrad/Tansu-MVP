@@ -9,11 +9,15 @@ import logging
 import platform
 import subprocess
 import uuid
+import webbrowser
 from typing import Optional
 
 from database import VariableDatabase
 from docx_updater import update_docx_variables, get_docx_variables
 from excel_reader import validate_excel_link, sync_variables_from_excel, validate_excel_range, read_range_as_variables, read_sheet_preview, get_sheet_names
+from version import __version__, __app_name__
+from settings import is_first_run, mark_first_run_complete, get_setting, set_setting
+from update_checker import check_for_update_async
 
 # Try to import Word integration (Windows and macOS)
 try:
@@ -765,6 +769,138 @@ class ImportRangeDialog(ctk.CTkToplevel):
 
 
 # -------------------------
+# First Run & Update Dialogs
+# -------------------------
+
+class FirstRunDialog(ctk.CTkToplevel):
+    """Dialog shown on first launch to get user consent for update checks."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title(f"Welcome to {__app_name__}")
+        self.geometry("450x280")
+        self.resizable(False, False)
+
+        self.result = None  # Will be True if user accepts, False otherwise
+
+        self.transient(parent)
+        self.grab_set()
+
+        self._create_widgets()
+
+        self.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f"+{x}+{y}")
+
+    def _create_widgets(self):
+        main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        main_frame.pack(fill="both", expand=True, padx=25, pady=20)
+
+        ctk.CTkLabel(
+            main_frame,
+            text=f"Welcome to {__app_name__}!",
+            font=("", 20, "bold")
+        ).pack(pady=(0, 15))
+
+        ctk.CTkLabel(
+            main_frame,
+            text="Thank you for using Tansu. To help improve the app,\nwe can check for updates when you start the app.",
+            justify="center"
+        ).pack(pady=(0, 10))
+
+        ctk.CTkLabel(
+            main_frame,
+            text="This only checks GitHub for new releases.\nNo personal data is collected.",
+            text_color="gray",
+            justify="center"
+        ).pack(pady=(0, 20))
+
+        self.update_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            main_frame,
+            text="Check for updates on startup",
+            variable=self.update_var
+        ).pack(pady=(0, 20))
+
+        btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        btn_frame.pack(fill="x")
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Get Started",
+            width=120,
+            command=self._on_accept
+        ).pack(side="right")
+
+    def _on_accept(self):
+        self.result = self.update_var.get()
+        self.destroy()
+
+
+class UpdateAvailableDialog(ctk.CTkToplevel):
+    """Dialog shown when a new version is available."""
+
+    def __init__(self, parent, update_info: dict):
+        super().__init__(parent)
+        self.title("Update Available")
+        self.geometry("400x200")
+        self.resizable(False, False)
+
+        self.update_info = update_info
+
+        self.transient(parent)
+        self.grab_set()
+
+        self._create_widgets()
+
+        self.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() - self.winfo_width()) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f"+{x}+{y}")
+
+    def _create_widgets(self):
+        main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        main_frame.pack(fill="both", expand=True, padx=25, pady=20)
+
+        ctk.CTkLabel(
+            main_frame,
+            text="A new version is available!",
+            font=("", 16, "bold")
+        ).pack(pady=(0, 10))
+
+        ctk.CTkLabel(
+            main_frame,
+            text=f"Version {self.update_info['version']} is now available.\nYou have version {__version__}.",
+            justify="center"
+        ).pack(pady=(0, 20))
+
+        btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        btn_frame.pack(fill="x")
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Download",
+            width=100,
+            command=self._on_download
+        ).pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(
+            btn_frame,
+            text="Later",
+            width=80,
+            fg_color="gray",
+            command=self.destroy
+        ).pack(side="left")
+
+    def _on_download(self):
+        url = self.update_info.get('download_url') or self.update_info.get('url')
+        if url:
+            webbrowser.open(url)
+        self.destroy()
+
+
+# -------------------------
 # Main Application Window
 # -------------------------
 
@@ -774,7 +910,7 @@ class VariableTrackerApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("Variable Tracker")
+        self.title(f"{__app_name__} v{__version__}")
         self.geometry("800x600")
         self.minsize(600, 400)
 
@@ -792,6 +928,40 @@ class VariableTrackerApp(ctk.CTk):
 
         self.attributes("-topmost", False)
         self.update()
+
+        # Show first-run dialog if needed
+        if is_first_run():
+            self.after(100, self._show_first_run_dialog)
+        elif get_setting("check_for_updates"):
+            # Check for updates in background
+            self.after(500, self._check_for_updates)
+
+    def _show_first_run_dialog(self):
+        """Show the first-run welcome dialog."""
+        dialog = FirstRunDialog(self)
+        self.wait_window(dialog)
+
+        # Save user's preference
+        if dialog.result is not None:
+            set_setting("check_for_updates", dialog.result)
+            mark_first_run_complete()
+
+            # Check for updates if user opted in
+            if dialog.result:
+                self.after(100, self._check_for_updates)
+
+    def _check_for_updates(self):
+        """Check for updates in the background."""
+        def on_update_result(update_info):
+            if update_info:
+                # Schedule dialog on main thread
+                self.after(0, lambda: self._show_update_dialog(update_info))
+
+        check_for_update_async(on_update_result)
+
+    def _show_update_dialog(self, update_info: dict):
+        """Show the update available dialog."""
+        UpdateAvailableDialog(self, update_info)
 
     def _create_widgets(self):
         self.grid_columnconfigure(0, weight=1)
