@@ -20,6 +20,7 @@ datas = [
     ('version.py', '.'),
     ('settings.py', '.'),
     ('update_checker.py', '.'),
+    ('icon.png', '.'),  # App icon for window
 ]
 
 binaries = []

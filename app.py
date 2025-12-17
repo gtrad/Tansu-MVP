@@ -1054,7 +1054,34 @@ class VariableTrackerApp(ctk.CTk):
         self.geometry("800x600")
         self.minsize(600, 400)
 
+        # Set window icon
+        self._set_icon()
+
         self.db = VariableDatabase()
+
+    def _set_icon(self):
+        """Set the application window icon."""
+        import sys
+        import os
+        from database import get_app_dir
+
+        # Find icon file
+        app_dir = get_app_dir()
+        icon_path = os.path.join(app_dir, "icon.png")
+
+        # Try different locations
+        if not os.path.exists(icon_path):
+            icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
+
+        if os.path.exists(icon_path):
+            try:
+                from PIL import Image, ImageTk
+                img = Image.open(icon_path)
+                photo = ImageTk.PhotoImage(img)
+                self.wm_iconphoto(True, photo)
+                self._icon_photo = photo  # Keep reference to prevent garbage collection
+            except Exception as e:
+                logging.debug(f"Could not set icon: {e}")
 
         self.word: Optional[WordIntegration] = None
         if HAS_WORD and WordIntegration:
