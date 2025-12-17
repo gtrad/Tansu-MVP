@@ -1059,9 +1059,28 @@ class VariableTrackerApp(ctk.CTk):
 
         self.db = VariableDatabase()
 
+        self.word: Optional[WordIntegration] = None
+        if HAS_WORD and WordIntegration:
+            try:
+                self.word = WordIntegration()
+            except Exception as e:
+                logging.warning(f"Could not initialize Word integration: {e}")
+
+        self._create_widgets()
+        self._refresh_variable_list()
+
+        self.attributes("-topmost", False)
+        self.update()
+
+        # Show first-run dialog if needed
+        if is_first_run():
+            self.after(100, self._show_first_run_dialog)
+        elif get_setting("check_for_updates"):
+            # Check for updates in background
+            self.after(500, self._check_for_updates)
+
     def _set_icon(self):
         """Set the application window icon."""
-        import sys
         import os
         from database import get_app_dir
 
@@ -1082,26 +1101,6 @@ class VariableTrackerApp(ctk.CTk):
                 self._icon_photo = photo  # Keep reference to prevent garbage collection
             except Exception as e:
                 logging.debug(f"Could not set icon: {e}")
-
-        self.word: Optional[WordIntegration] = None
-        if HAS_WORD and WordIntegration:
-            try:
-                self.word = WordIntegration()
-            except Exception as e:
-                logging.warning(f"Could not initialize Word integration: {e}")
-
-        self._create_widgets()
-        self._refresh_variable_list()
-
-        self.attributes("-topmost", False)
-        self.update()
-
-        # Show first-run dialog if needed
-        if is_first_run():
-            self.after(100, self._show_first_run_dialog)
-        elif get_setting("check_for_updates"):
-            # Check for updates in background
-            self.after(500, self._check_for_updates)
 
     def _show_first_run_dialog(self):
         """Show the first-run welcome dialog."""
