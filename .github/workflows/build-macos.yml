@@ -66,8 +66,9 @@ jobs:
         run: |
           # Install x86_64 Homebrew
           arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          # Install Python via x86_64 Homebrew
+          # Install Python via x86_64 Homebrew and force link
           arch -x86_64 /usr/local/bin/brew install python@3.11
+          arch -x86_64 /usr/local/bin/brew link --overwrite python@3.11
 
       - name: Install dependencies (x86_64)
         run: |
