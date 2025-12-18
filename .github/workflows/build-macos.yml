@@ -66,19 +66,22 @@ jobs:
         run: |
           # Install x86_64 Homebrew
           arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          # Install Python via x86_64 Homebrew and force link
+          # Install Python via x86_64 Homebrew (skip linking - we'll use Cellar path)
           arch -x86_64 /usr/local/bin/brew install python@3.11
-          arch -x86_64 /usr/local/bin/brew link --overwrite python@3.11
+          # Find the actual Python path in Cellar
+          PYTHON_PATH=$(arch -x86_64 /usr/local/bin/brew --prefix python@3.11)/bin/python3.11
+          echo "PYTHON_X86=$PYTHON_PATH" >> $GITHUB_ENV
+          echo "Using Python at: $PYTHON_PATH"
 
       - name: Install dependencies (x86_64)
         run: |
-          arch -x86_64 /usr/local/bin/python3.11 -m pip install --upgrade pip
-          arch -x86_64 /usr/local/bin/python3.11 -m pip install pyinstaller
-          arch -x86_64 /usr/local/bin/python3.11 -m pip install customtkinter Pillow openpyxl python-docx pynput pyobjc-framework-Quartz pyobjc-framework-ApplicationServices
+          arch -x86_64 $PYTHON_X86 -m pip install --upgrade pip
+          arch -x86_64 $PYTHON_X86 -m pip install pyinstaller
+          arch -x86_64 $PYTHON_X86 -m pip install customtkinter Pillow openpyxl python-docx pynput pyobjc-framework-Quartz pyobjc-framework-ApplicationServices
 
       - name: Build app with PyInstaller (x86_64)
         run: |
-          arch -x86_64 /usr/local/bin/python3.11 -m PyInstaller Tansu.spec --clean -y
+          arch -x86_64 $PYTHON_X86 -m PyInstaller Tansu.spec --clean -y
 
       - name: Create DMG
         run: |
