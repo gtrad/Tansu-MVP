@@ -40,46 +40,37 @@ datas += tmp_ret[0]
 binaries += tmp_ret[1]
 hiddenimports += tmp_ret[2]
 
+# Global hotkey support (pynput) - both platforms
+hiddenimports += ['pynput', 'pynput.keyboard', 'pynput.keyboard._darwin', 'pynput.keyboard._win32']
+try:
+    tmp_ret = collect_all('pynput')
+    datas += tmp_ret[0]
+    binaries += tmp_ret[1]
+    hiddenimports += tmp_ret[2]
+except:
+    pass
+
 # Platform-specific configuration
 if is_mac:
     # Mac-specific files
     datas += [
-        ('menubar_app.py', '.'),
         ('word_mac.py', '.'),
         ('app.py', '.'),
     ]
-    hiddenimports += ['rumps', 'objc', 'AppKit', 'Foundation']
+    hiddenimports += ['objc', 'AppKit', 'Foundation', 'ApplicationServices', 'Quartz']
 
-    # Collect rumps
-    try:
-        tmp_ret = collect_all('rumps')
-        datas += tmp_ret[0]
-        binaries += tmp_ret[1]
-        hiddenimports += tmp_ret[2]
-    except:
-        pass
-
-    entry_script = 'launcher.py'
+    entry_script = 'app.py'
 
 elif is_windows:
     # Windows-specific files
     datas += [
-        ('tray_app_windows.py', '.'),
         ('word_windows.py', '.'),
         ('app.py', '.'),
         ('word_addin', 'word_addin'),  # Include VBA files
     ]
-    hiddenimports += ['win32com', 'win32com.client', 'pystray', 'PIL', 'PIL.Image']
+    hiddenimports += ['win32com', 'win32com.client', 'PIL', 'PIL.Image']
 
-    # Collect pystray and Pillow
-    try:
-        tmp_ret = collect_all('pystray')
-        datas += tmp_ret[0]
-        binaries += tmp_ret[1]
-        hiddenimports += tmp_ret[2]
-    except:
-        pass
-
+    # Collect Pillow (needed for window icon)
     try:
         tmp_ret = collect_all('PIL')
         datas += tmp_ret[0]
@@ -125,7 +116,7 @@ exe = EXE(
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
-    entitlements_file=None,
+    entitlements_file='entitlements.plist' if is_mac else None,
     icon='icon.icns' if is_mac and os.path.exists('icon.icns') else ('icon.ico' if is_windows and os.path.exists('icon.ico') else None),
 )
 
@@ -151,6 +142,6 @@ if is_mac:
             'NSHighResolutionCapable': 'True',
             'LSMinimumSystemVersion': '10.13.0',
             'NSAppleEventsUsageDescription': 'Tansu needs to control Microsoft Word to insert and update variables.',
-            'CFBundleShortVersionString': '1.0.0',
+            'CFBundleShortVersionString': '0.9.0',
         },
     )

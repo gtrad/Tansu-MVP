@@ -2256,6 +2256,137 @@ class VariableTrackerApp(ctk.CTk):
 
     def _start_hotkey_listener(self):
         """Start the global hotkey listener for Alt+Space (Option+Space on Mac)."""
+        self._event_monitor = None
+        self._listener = None
+
+        if platform.system() == "Darwin":
+            self._start_hotkey_listener_mac()
+        else:
+            self._start_hotkey_listener_pynput()
+
+    def _start_hotkey_listener_mac(self):
+        """macOS-specific hotkey - delay start to avoid crash in bundled app."""
+        # Check/request Accessibility permission first
+        if not self._check_accessibility_permission():
+            logging.warning("Accessibility permission not granted - hotkey disabled")
+            return
+
+        # Delay the actual listener start until after GUI is fully initialized
+        # This avoids the crash that happens when pynput accesses keyboard APIs too early
+        self.after(2000, self._setup_mac_hotkey_delayed)
+
+    def _setup_mac_hotkey_delayed(self):
+        """Set up macOS hotkey using Quartz CGEventTap directly."""
+        import threading
+
+        try:
+            from Quartz import (
+                CGEventTapCreate, CGEventTapEnable, CFMachPortCreateRunLoopSource,
+                CFRunLoopGetCurrent, CFRunLoopAddSource, CFRunLoopRun,
+                kCGSessionEventTap, kCGHeadInsertEventTap, kCGEventTapOptionListenOnly,
+                CGEventMaskBit, kCGEventKeyDown,
+                CGEventGetIntegerValueField, CGEventGetFlags,
+                kCGKeyboardEventKeycode, kCFRunLoopDefaultMode
+            )
+
+            app_ref = self
+
+            def hotkey_callback(proxy, event_type, event, refcon):
+                try:
+                    keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
+                    flags = CGEventGetFlags(event)
+                    # Option/Alt flag = 0x80000, Space keycode = 49
+                    if keycode == 49 and (flags & 0x80000):
+                        app_ref.after(0, app_ref._show_quick_insert)
+                except Exception:
+                    pass
+                return event
+
+            def run_event_tap():
+                tap = CGEventTapCreate(
+                    kCGSessionEventTap,
+                    kCGHeadInsertEventTap,
+                    kCGEventTapOptionListenOnly,
+                    CGEventMaskBit(kCGEventKeyDown),
+                    hotkey_callback,
+                    None
+                )
+                if tap is None:
+                    logging.warning("Failed to create event tap - Input Monitoring permission may be needed")
+                    return
+
+                run_loop_source = CFMachPortCreateRunLoopSource(None, tap, 0)
+                CFRunLoopAddSource(CFRunLoopGetCurrent(), run_loop_source, kCFRunLoopDefaultMode)
+                CGEventTapEnable(tap, True)
+                logging.info("Global hotkey (Option+Space) registered")
+                CFRunLoopRun()
+
+            self._hotkey_thread = threading.Thread(target=run_event_tap, daemon=True)
+            self._hotkey_thread.start()
+
+            # Show Input Monitoring instructions on first launch
+            self._show_input_monitoring_instructions_once()
+
+        except Exception as e:
+            logging.warning(f"Could not start macOS hotkey: {e}")
+            self._show_input_monitoring_instructions()
+
+    def _show_input_monitoring_instructions_once(self):
+        """Show Input Monitoring instructions on first launch only."""
+        import os
+
+        # Use a marker file in user's home directory
+        marker_file = os.path.expanduser('~/.tansu_input_monitoring_shown')
+
+        if os.path.exists(marker_file):
+            return
+
+        self._show_input_monitoring_instructions()
+
+        # Create marker file so we don't show again
+        try:
+            with open(marker_file, 'w') as f:
+                f.write('1')
+        except Exception:
+            pass
+
+    def _show_input_monitoring_instructions(self):
+        """Show instructions for enabling Input Monitoring permission."""
+        # Bring the app to the front
+        self.lift()
+        self.focus_force()
+
+        msg = (
+            "For the Option+Space hotkey to work, Tansu needs permissions.\n\n"
+            "To enable:\n"
+            "1. Open System Settings > Privacy & Security\n"
+            "2. Add Tansu to both Accessibility AND Input Monitoring\n"
+            "3. Restart Tansu\n\n"
+            "Alternatively, use the 'Update Open' button to insert variables."
+        )
+        messagebox.showinfo("Hotkey Setup", msg, parent=self)
+
+    def _check_accessibility_permission(self) -> bool:
+        """Check if Accessibility permission is granted, prompt if not."""
+        try:
+            import objc
+            from ApplicationServices import AXIsProcessTrustedWithOptions
+            from Foundation import NSDictionary
+
+            # kAXTrustedCheckOptionPrompt = True will show the system dialog
+            options = NSDictionary.dictionaryWithObject_forKey_(
+                True,  # Prompt user if not trusted
+                "AXTrustedCheckOptionPrompt"
+            )
+            trusted = AXIsProcessTrustedWithOptions(options)
+            return trusted
+        except Exception as e:
+            logging.warning(f"Could not check accessibility permission: {e}")
+            # Fall back to assuming it's granted
+            return True
+
+    def _start_hotkey_listener_pynput(self):
+        """Windows/Linux hotkey using pynput."""
         try:
             from pynput import keyboard
 
@@ -2263,7 +2394,7 @@ class VariableTrackerApp(ctk.CTk):
                 # Schedule on main thread
                 self.after(0, self._show_quick_insert)
 
-            # Alt+Space hotkey (Option+Space on Mac)
+            # Alt+Space hotkey
             hotkey = keyboard.HotKey(
                 keyboard.HotKey.parse('<alt>+<space>'),
                 on_hotkey
@@ -2278,11 +2409,23 @@ class VariableTrackerApp(ctk.CTk):
             self._listener = keyboard.Listener(on_press=on_press, on_release=on_release)
             self._listener.start()
 
-            hotkey_name = "Option+Space" if platform.system() == "Darwin" else "Alt+Space"
-            logging.info(f"Global hotkey ({hotkey_name}) registered")
+            logging.info("Global hotkey (Alt+Space) registered via pynput")
 
         except Exception as e:
             logging.warning(f"Could not start hotkey listener: {e}")
+
+    def _stop_hotkey_listener(self):
+        """Stop the global hotkey listener and clean up."""
+        # macOS uses thread with CFRunLoop, Windows uses pynput listener
+        if platform.system() == "Darwin":
+            # The daemon thread will be stopped automatically when app exits
+            pass
+        elif self._listener:
+            try:
+                self._listener.stop()
+                self._listener = None
+            except Exception as e:
+                logging.warning(f"Error stopping listener: {e}")
 
     def _show_quick_insert(self):
         """Show the quick insert popup."""
@@ -2297,6 +2440,11 @@ class VariableTrackerApp(ctk.CTk):
             return
 
         self._quick_insert_popup = QuickInsertPopup(self, variables)
+
+    def destroy(self):
+        """Clean up resources before destroying the window."""
+        self._stop_hotkey_listener()
+        super().destroy()
 
 
 # -------------------------

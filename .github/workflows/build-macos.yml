@@ -46,25 +46,26 @@ jobs:
           path: Tansu-0.9.0-AppleSilicon.dmg
 
   build-intel:
-    runs-on: macos-13  # Intel runner
+    runs-on: macos-15  # Use macos-15 with Rosetta for Intel build
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
+      - name: Set up Python (x86_64 via Rosetta)
         run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install customtkinter Pillow openpyxl python-docx pynput pyobjc-framework-Quartz pyobjc-framework-ApplicationServices
+          # Install x86_64 Homebrew and Python for Intel compatibility
+          arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || true
+          arch -x86_64 /usr/local/bin/brew install python@3.11 || true
 
-      - name: Build app with PyInstaller
+      - name: Install dependencies (x86_64)
         run: |
-          pyinstaller Tansu.spec --clean -y
+          arch -x86_64 /usr/local/bin/python3.11 -m pip install --upgrade pip
+          arch -x86_64 /usr/local/bin/python3.11 -m pip install pyinstaller
+          arch -x86_64 /usr/local/bin/python3.11 -m pip install customtkinter Pillow openpyxl python-docx pynput pyobjc-framework-Quartz pyobjc-framework-ApplicationServices
+
+      - name: Build app with PyInstaller (x86_64)
+        run: |
+          arch -x86_64 /usr/local/bin/python3.11 -m PyInstaller Tansu.spec --clean -y
 
       - name: Create DMG
         run: |
