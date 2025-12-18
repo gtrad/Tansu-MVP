@@ -57,29 +57,25 @@ jobs:
           prerelease: false
 
   build-intel:
-    runs-on: macos-14  # Use Apple Silicon with Rosetta
+    runs-on: macos-13  # Intel runner
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install x86_64 Homebrew and Python
-        run: |
-          # Install x86_64 Homebrew
-          arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          # Remove conflicting python.org symlinks (they conflict with Homebrew)
-          sudo rm -f /usr/local/bin/python3.11* /usr/local/bin/2to3-3.11 /usr/local/bin/idle3.11 /usr/local/bin/pydoc3.11
-          # Install Python via x86_64 Homebrew
-          arch -x86_64 /usr/local/bin/brew install python@3.11
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      - name: Install dependencies (x86_64)
+      - name: Install dependencies
         run: |
-          arch -x86_64 /usr/local/bin/python3.11 -m pip install --upgrade pip
-          arch -x86_64 /usr/local/bin/python3.11 -m pip install pyinstaller
-          arch -x86_64 /usr/local/bin/python3.11 -m pip install customtkinter Pillow openpyxl python-docx pynput pyobjc-framework-Quartz pyobjc-framework-ApplicationServices
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install customtkinter Pillow openpyxl python-docx pynput pyobjc-framework-Quartz pyobjc-framework-ApplicationServices
 
-      - name: Build app with PyInstaller (x86_64)
+      - name: Build app with PyInstaller
         run: |
-          arch -x86_64 /usr/local/bin/python3.11 -m PyInstaller Tansu.spec --clean -y
+          pyinstaller Tansu.spec --clean -y
 
       - name: Create DMG
         run: |
