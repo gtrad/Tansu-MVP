@@ -11,7 +11,7 @@ Tansu is a desktop application that helps you manage variables across Microsoft 
 - **Word DOCVARIABLE Fields** - Insert variables as updatable fields in Word documents
 - **Batch Updates** - Update all linked Word documents with a single click
 - **Cross-Platform** - Works on macOS and Windows
-- **Menu Bar / System Tray** - Quick access to insert variables without leaving Word
+- **Global Hotkey** - Press Option+Space (Mac) or Alt+Space (Windows) to quickly insert variables
 
 ## Installation
 
@@ -81,10 +81,13 @@ build_windows.bat
 2. Place your cursor where you want the variable
 3. In Tansu, select a variable and click **Update Open**
 
-**Option 2: Menu Bar / System Tray (Quick Insert)**
-1. Run `python tray_app.py` to start the tray app
-2. Click the "VT" icon in your menu bar (Mac) or system tray (Windows)
-3. Select a variable to insert it at your cursor position
+**Option 2: Global Hotkey (Recommended)**
+Press **Option+Space** (Mac) or **Alt+Space** (Windows) while in Word to open the quick insert popup.
+
+> **macOS Note:** The first time you use the hotkey, you may need to grant Tansu **Input Monitoring** permission:
+> 1. Open **System Settings > Privacy & Security > Input Monitoring**
+> 2. Click the **+** button and add Tansu from your Applications folder
+> 3. Restart Tansu for the hotkey to work
 
 **Option 3: Word Ribbon Button (Windows)**
 See `word_addin/INSTALL_WORD_ADDIN.txt` for instructions on adding an "Insert Variable" button directly to Word's ribbon.
