@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 jobs:
-  build-macos:
+  build-apple-silicon:
     runs-on: macos-14  # Apple Silicon runner
     steps:
       - name: Checkout code
@@ -40,17 +40,61 @@ jobs:
         run: |
           chmod +x create_dmg.sh
           ./create_dmg.sh
+          mv Tansu-0.9.0.dmg Tansu-0.9.0-AppleSilicon.dmg
 
-      - name: Upload DMG
+      - name: Upload Apple Silicon DMG
         uses: actions/upload-artifact@v4
         with:
-          name: Tansu-macOS
-          path: Tansu-0.9.0.dmg
+          name: Tansu-AppleSilicon
+          path: Tansu-0.9.0-AppleSilicon.dmg
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
-          files: Tansu-0.9.0.dmg
+          files: Tansu-0.9.0-AppleSilicon.dmg
+          draft: false
+          prerelease: false
+
+  build-intel:
+    runs-on: macos-14  # Use Apple Silicon with Rosetta
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install x86_64 Homebrew and Python
+        run: |
+          # Install x86_64 Homebrew
+          arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          # Install Python via x86_64 Homebrew
+          arch -x86_64 /usr/local/bin/brew install python@3.11
+
+      - name: Install dependencies (x86_64)
+        run: |
+          arch -x86_64 /usr/local/bin/python3.11 -m pip install --upgrade pip
+          arch -x86_64 /usr/local/bin/python3.11 -m pip install pyinstaller
+          arch -x86_64 /usr/local/bin/python3.11 -m pip install customtkinter Pillow openpyxl python-docx pynput pyobjc-framework-Quartz pyobjc-framework-ApplicationServices
+
+      - name: Build app with PyInstaller (x86_64)
+        run: |
+          arch -x86_64 /usr/local/bin/python3.11 -m PyInstaller Tansu.spec --clean -y
+
+      - name: Create DMG
+        run: |
+          chmod +x create_dmg.sh
+          ./create_dmg.sh
+          mv Tansu-0.9.0.dmg Tansu-0.9.0-Intel.dmg
+
+      - name: Upload Intel DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tansu-Intel
+          path: Tansu-0.9.0-Intel.dmg
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: Tansu-0.9.0-Intel.dmg
           draft: false
           prerelease: false
