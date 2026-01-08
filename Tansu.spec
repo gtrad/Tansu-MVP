@@ -67,6 +67,7 @@ elif is_windows:
         ('word_windows.py', '.'),
         ('app.py', '.'),
         ('word_addin', 'word_addin'),  # Include VBA files
+        ('certs', 'certs'),  # SSL certificates for Word add-in WebSocket
     ]
     hiddenimports += ['win32com', 'win32com.client', 'PIL', 'PIL.Image']
 

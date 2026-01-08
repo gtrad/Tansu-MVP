@@ -32,6 +32,15 @@ jobs:
           pip install pyinstaller
           pip install customtkinter Pillow openpyxl python-docx pynput pywin32 pystray
 
+      - name: Create certs directory and extract certificates
+        env:
+          SSL_FULLCHAIN: ${{ secrets.SSL_FULLCHAIN }}
+          SSL_PRIVKEY: ${{ secrets.SSL_PRIVKEY }}
+        run: |
+          New-Item -ItemType Directory -Force -Path certs
+          [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:SSL_FULLCHAIN)) | Out-File -FilePath certs/fullchain.pem -Encoding utf8
+          [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:SSL_PRIVKEY)) | Out-File -FilePath certs/privkey.pem -Encoding utf8
+
       - name: Build app with PyInstaller
         run: |
           pyinstaller Tansu.spec --clean -y
