@@ -23,6 +23,7 @@ from excel_reader import (
 from version import __version__, __app_name__
 from settings import is_first_run, mark_first_run_complete, get_setting, set_setting
 from update_checker import check_for_update_async
+from api_server import start_api_server, stop_api_server
 
 # Try to import Word integration (Windows and macOS)
 try:
@@ -1402,6 +1403,9 @@ class VariableTrackerApp(ctk.CTk):
         self._start_hotkey_listener()
         self._quick_insert_popup = None
 
+        # Start API server for Word add-in
+        start_api_server()
+
     def _set_icon(self):
         """Set the application window icon."""
         import os
@@ -2444,6 +2448,7 @@ class VariableTrackerApp(ctk.CTk):
     def destroy(self):
         """Clean up resources before destroying the window."""
         self._stop_hotkey_listener()
+        stop_api_server()
         super().destroy()
 
 

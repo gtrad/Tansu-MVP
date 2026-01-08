@@ -68,3 +68,6 @@ htmlcov/
 !Tansu.spec
 *.dmg
 package-lock.json
+
+# SSL certificates (contain private key)
+certs/
